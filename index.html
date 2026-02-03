@@ -1,31 +1,120 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SDK Cognitivo Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    .top { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+    .badge { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: #eee; }
+    .chat { border: 1px solid #ddd; border-radius: 12px; padding: 12px; height: 55vh; overflow: auto; background: #fafafa; }
+    .msg { margin: 10px 0; display: flex; }
+    .msg.user { justify-content: flex-end; }
+    .bubble { max-width: 85%; padding: 10px 12px; border-radius: 14px; white-space: pre-wrap; line-height: 1.3; }
+    .user .bubble { background: #dff1ff; }
+    .bot .bubble { background: #eaeaea; }
+    .row { display: flex; gap: 8px; margin-top: 10px; }
+    input { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #ccc; }
+    button { padding: 12px 14px; border-radius: 10px; border: 1px solid #ccc; background: #fff; }
+    button:active { transform: scale(0.99); }
+    .muted { color: #666; font-size: 12px; margin-top: 8px; }
+  </style>
 </head>
 <body>
+  <div class="wrap">
+    <div class="top">
+      <h2 style="margin:0;">SDK Cognitivo</h2>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span id="status" class="badge">status: ...</span>
+        <button onclick="resetSession()">Reset sessão</button>
+      </div>
+    </div>
 
-<h1>SDK Cognitivo Demo</h1>
+    <div id="chat" class="chat"></div>
 
-<input id="msg" type="text" placeholder="Digite sua mensagem" size="40">
-<button onclick="send()">Enviar</button>
+    <div class="row">
+      <input id="msg" type="text" placeholder="Digite sua mensagem..." />
+      <button onclick="send()">Enviar</button>
+    </div>
 
-<pre id="out"></pre>
+    <div class="muted">
+      Dica: não precisa atualizar a página. O cookie mantém sua sessão.
+    </div>
+  </div>
 
-<script>
-async function send() {
-  const text = document.getElementById("msg").value;
+  <script>
+    const chatEl = document.getElementById("chat");
+    const msgEl = document.getElementById("msg");
+    const statusEl = document.getElementById("status");
 
-  const res = await fetch("/chat", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({message: text})
-  });
+    function addMessage(role, text) {
+      const wrap = document.createElement("div");
+      wrap.className = "msg " + role;
 
-  const data = await res.json();
-  document.getElementById("out").innerText = data.reply;
-}
-</script>
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = text;
 
+      wrap.appendChild(bubble);
+      chatEl.appendChild(wrap);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    async function refreshStatus() {
+      try {
+        const r = await fetch("/status");
+        const j = await r.json();
+        statusEl.textContent = `sessions: ${j.sessions_count}`;
+      } catch (e) {
+        statusEl.textContent = "status: erro";
+      }
+    }
+
+    async function send() {
+      const text = msgEl.value.trim();
+      if (!text) return;
+
+      addMessage("user", text);
+      msgEl.value = "";
+      msgEl.focus();
+
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+        addMessage("bot", data.reply || "(sem resposta)");
+      } catch (e) {
+        addMessage("bot", "⚠️ Erro ao chamar /chat. Tente novamente.");
+      }
+
+      refreshStatus();
+    }
+
+    async function resetSession() {
+      addMessage("bot", "🔄 Resetando sessão...");
+      try {
+        const res = await fetch("/reset", { method: "POST" });
+        const data = await res.json();
+        addMessage("bot", `✅ Reset: ${JSON.stringify(data)}`);
+      } catch (e) {
+        addMessage("bot", "⚠️ Falha ao resetar sessão.");
+      }
+      refreshStatus();
+    }
+
+    // Enviar com Enter
+    msgEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") send();
+    });
+
+    // Boot
+    addMessage("bot", "Olá! Digite uma mensagem para testar o SDK.");
+    refreshStatus();
+  </script>
 </body>
 </html>
