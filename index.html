@@ -17,7 +17,7 @@
     .bot .bubble { background: #eaeaea; }
     .row { display: flex; gap: 8px; margin-top: 10px; }
     input { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #ccc; }
-    button { padding: 12px 14px; border-radius: 10px; border: 1px solid #ccc; background: #fff; }
+    button { padding: 12px 14px; border-radius: 10px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
     button:active { transform: scale(0.99); }
     .muted { color: #666; font-size: 12px; margin-top: 8px; }
   </style>
@@ -64,7 +64,10 @@
 
     async function refreshStatus() {
       try {
-        const r = await fetch("/status");
+        const r = await fetch("/status", {
+          method: "GET",
+          credentials: "include"
+        });
         const j = await r.json();
         statusEl.textContent = `sessions: ${j.sessions_count}`;
       } catch (e) {
@@ -83,37 +86,39 @@
       try {
         const res = await fetch("/chat", {
           method: "POST",
-          headers: {"Content-Type": "application/json"},
+          credentials: "include",  // 🔥 envia/recebe cookie
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text })
         });
+
         const data = await res.json();
         addMessage("bot", data.reply || "(sem resposta)");
+        refreshStatus();
       } catch (e) {
         addMessage("bot", "⚠️ Erro ao chamar /chat. Tente novamente.");
       }
-
-      refreshStatus();
     }
 
     async function resetSession() {
-      addMessage("bot", "🔄 Resetando sessão...");
       try {
-        const res = await fetch("/reset", { method: "POST" });
+        const res = await fetch("/reset", {
+          method: "POST",
+          credentials: "include"   // 🔥 mantém a mesma sessão pro reset
+        });
         const data = await res.json();
-        addMessage("bot", `✅ Reset: ${JSON.stringify(data)}`);
+        addMessage("bot", `✅ Sessão resetada (${data.session_id}).`);
+        refreshStatus();
       } catch (e) {
-        addMessage("bot", "⚠️ Falha ao resetar sessão.");
+        addMessage("bot", "⚠️ Erro ao chamar /reset.");
       }
-      refreshStatus();
     }
 
-    // Enviar com Enter
+    // Enter para enviar
     msgEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") send();
     });
 
-    // Boot
-    addMessage("bot", "Olá! Digite uma mensagem para testar o SDK.");
+    // Atualiza status ao abrir
     refreshStatus();
   </script>
 </body>
