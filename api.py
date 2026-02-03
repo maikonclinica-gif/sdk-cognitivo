@@ -1,63 +1,66 @@
-import os
-import re
-import uuid
-from typing import Dict, Any, Optional
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-import redis
+from sdk import sdk, sdk_status, new_session_id, sdk_reset
 
-# ===== REDIS =====
-REDIS_URL = os.getenv("REDIS_URL")
-if not REDIS_URL:
-    raise RuntimeError("REDIS_URL não encontrado nas variáveis de ambiente (Render/Upstash).")
+app = FastAPI()
 
-r = redis.from_url(REDIS_URL, decode_responses=True)
+# 🔥 CORS correto para cookies no Render
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://cognitivo.onrender.com"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-
-def new_session_id() -> str:
-    """Cria um session_id novo."""
-    return str(uuid.uuid4())
-
-
-def sdk_status() -> Dict[str, Any]:
-    """Status básico do SDK (para /status e para o Render)."""
-    try:
-        r.ping()
-        redis_ok = True
-    except Exception:
-        redis_ok = False
-
-    return {"ok": True, "redis_ok": redis_ok}
+class ChatRequest(BaseModel):
+    message: str
 
 
-def sdk_reset(session_id: str) -> Dict[str, Any]:
-    """Apaga memória daquela sessão."""
-    key = f"name:{session_id}"
-    r.delete(key)
-    return {"ok": True, "message": "Sessão resetada."}
+@app.get("/")
+def root():
+    return FileResponse("index.html")
 
 
-def sdk(message: str, session_id: str) -> str:
-    """
-    SDK cognitivo mínimo:
-    - salva nome por sessão no Redis
-    - responde 'qual é meu nome'
-    """
-    key = f"name:{session_id}"
-    msg = (message or "").strip()
-    message_lower = msg.lower()
+@app.post("/chat")
+def chat(req: ChatRequest, request: Request):
+    # pega session_id do cookie; se não existir, cria nova sessão
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        session_id = new_session_id()
 
-    # Detectar "meu nome é X"
-    match = re.search(r"meu nome é\s+([a-zA-ZÀ-ÿ]+)", message_lower)
-    if match:
-        name = match.group(1).strip().capitalize()
-        r.set(key, name)
-        return f"Prazer, {name}! Vou lembrar disso."
+    reply = sdk(req.message, session_id)
 
-    # Pergunta do nome
-    if "qual é meu nome" in message_lower:
-        name: Optional[str] = r.get(key)
-        if name:
-            return f"Seu nome é {name}."
-        return "Você ainda não me disse seu nome."
+    resp = JSONResponse({"reply": reply, "session_id": session_id})
+    resp.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=False,
+        samesite="none",   # 🔥 necessário em produção
+        secure=True        # 🔥 obrigatório em HTTPS
+    )
+    return resp
 
-    return "Não entendi ainda, mas estou aprendendo 😉"
+
+@app.post("/reset")
+def reset(request: Request):
+    session_id = request.cookies.get("session_id") or new_session_id()
+    data = sdk_reset(session_id)
+
+    resp = JSONResponse(data)
+    resp.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=False,
+        samesite="none",
+        secure=True
+    )
+    return resp
+
+
+@app.get("/status")
+def status():
+    return sdk_status()
