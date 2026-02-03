@@ -1,51 +1,56 @@
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-import redis
 import os
 import re
-
-app = FastAPI()
+import redis
+import uuid
+from typing import Dict, Any, Optional
 
 # ===== REDIS =====
 REDIS_URL = os.getenv("REDIS_URL")
+if not REDIS_URL:
+    raise RuntimeError("REDIS_URL não encontrado nas variáveis de ambiente.")
 
-r = redis.from_url(
-    REDIS_URL,
-    decode_responses=True
-)
+r = redis.from_url(REDIS_URL, decode_responses=True)
 
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str
 
-@app.get("/")
-def root():
-    return FileResponse("index.html")
+def new_session_id() -> str:
+    """Gera um ID de sessão novo."""
+    return str(uuid.uuid4())
 
-def sdk(message: str, session_id: str):
 
+def sdk_status() -> Dict[str, Any]:
+    """Status básico do SDK (para o Render/healthcheck e UI)."""
+    return {"ok": True, "redis": True}
+
+
+def sdk_reset(session_id: str) -> Dict[str, Any]:
+    """Reseta memória daquela sessão."""
     key = f"name:{session_id}"
-    message_lower = message.lower()
+    r.delete(key)
+    return {"ok": True, "message": "Sessão resetada."}
+
+
+def sdk(message: str, session_id: str) -> str:
+    """
+    SDK cognitivo mínimo:
+    - detecta 'meu nome é X' e persiste por sessão no Redis
+    - responde 'qual é meu nome'
+    """
+    key = f"name:{session_id}"
+    msg = (message or "").strip()
+    message_lower = msg.lower()
 
     # Detectar "meu nome é X"
-    match = re.search(r"meu nome é (\w+)", message_lower)
+    match = re.search(r"meu nome é\s+([a-zA-ZÀ-ÿ]+)", message_lower)
     if match:
-        name = match.group(1).capitalize()
+        name = match.group(1).strip().capitalize()
         r.set(key, name)
         return f"Prazer, {name}! Vou lembrar disso."
 
     # Pergunta do nome
     if "qual é meu nome" in message_lower:
-        name = r.get(key)
+        name: Optional[str] = r.get(key)
         if name:
             return f"Seu nome é {name}."
-        else:
-            return "Você ainda não me disse seu nome."
+        return "Você ainda não me disse seu nome."
 
     return "Não entendi ainda, mas estou aprendendo 😉"
-
-@app.post("/chat")
-def chat(req: ChatRequest):
-    reply = sdk(req.message, req.session_id)
-    return {"reply": reply}
