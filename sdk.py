@@ -1,50 +1,52 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
-import uuid
+# SDK Cognitivo — memória persistente por sessão (SQLite)
 
-from sdk import sdk, sdk_status, sdk_reset
+from typing import Optional
+import memory_store  # <-- IMPORTA O MÓDULO, NÃO FUNÇÕES DIRETAS
 
-app = FastAPI()
+memory_store.init_db()
 
-class ChatRequest(BaseModel):
-    message: str
+def extract_name(text: str) -> Optional[str]:
+    t = text.strip().lower()
+    if "meu nome é" in t:
+        name = t.split("meu nome é", 1)[-1].strip()
+        name = name.replace(".", "").replace("!", "").replace("?", "")
+        return name.title() if name else None
+    return None
 
-def get_or_set_session_id(request: Request, response: JSONResponse) -> str:
-    sid = request.cookies.get("sdk_session_id")
-    if not sid:
-        sid = str(uuid.uuid4())
-        # cookie simples (pode melhorar depois com secure/samesite)
-        response.set_cookie("sdk_session_id", sid, httponly=False, samesite="lax")
-    return sid
+def sdk(session_id: str, message: str) -> str:
+    memory_store.add_memory(session_id, message)
 
-@app.get("/")
-def root():
-    return FileResponse("index.html")
+    name = extract_name(message)
+    if name:
+        memory_store.add_memory(session_id, f"nome:{name}")
+        return f"Prazer, {name}. Vou lembrar disso."
 
-@app.post("/chat")
-def chat(req: ChatRequest, request: Request):
-    response = JSONResponse(content={"reply": ""})
-    sid = get_or_set_session_id(request, response)
+    stored = memory_store.find_first_by_prefix(session_id, "nome:")
+    stored_name = stored.split(":", 1)[1] if stored else None
 
-    reply = sdk(sid, req.message)
-    response.body = JSONResponse(content={"reply": reply}).body
-    return response
+    if "qual é meu nome" in message.lower():
+        if stored_name:
+            return f"Seu nome é {stored_name}."
+        return "Você ainda não me disse seu nome."
 
-@app.get("/status")
-def status(request: Request):
-    response = JSONResponse(content={})
-    sid = get_or_set_session_id(request, response)
+    mem = memory_store.get_memories(session_id, limit=30)
 
-    payload = sdk_status(sid)
-    response.body = JSONResponse(content=payload).body
-    return response
+    return (
+        "[Intent:general | Emotion:neutral]\n"
+        f"Session: {session_id}\n"
+        f"Memórias: {' | '.join(mem)}\n"
+        f"→ Entendi: {message}"
+    )
 
-@app.post("/reset")
-def reset(request: Request):
-    response = JSONResponse(content={})
-    sid = get_or_set_session_id(request, response)
+def sdk_status(session_id: str):
+    mem = memory_store.get_memories(session_id, limit=200)
+    return {
+        "status": "SDK running",
+        "session_id": session_id,
+        "memory_size": len(mem),
+        "memory": mem
+    }
 
-    payload = sdk_reset(sid)
-    response.body = JSONResponse(content=payload).body
-    return response
+def sdk_reset(session_id: str):
+    memory_store.clear_session(session_id)
+    return {"ok": True, "reset": "session", "session_id": session_id}
