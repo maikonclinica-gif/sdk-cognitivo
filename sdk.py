@@ -11,27 +11,28 @@ def extract_name(text):
 def sdk(message: str):
     global memory
 
-    # salva mensagem na memória
+    msg = message.lower().strip()
+
+    # salva mensagem
     memory.append(message)
 
-    # verifica se o usuário falou o nome
+    # captura nome
     name = extract_name(message)
     if name:
         memory.append(f"nome:{name}")
         return f"Prazer, {name}. Vou lembrar disso."
 
-    # tenta recuperar nome da memória
+    # recuperar nome salvo
     stored_name = None
     for item in memory:
         if item.startswith("nome:"):
             stored_name = item.split(":")[1]
 
-    # se perguntar o nome
-    if "qual é meu nome" in message.lower():
+    # pergunta sobre o nome (mais robusto)
+    if "qual é meu nome" in msg or "qual e meu nome" in msg:
         if stored_name:
             return f"Seu nome é {stored_name}."
-        else:
-            return "Você ainda não me disse seu nome."
+        return "Você ainda não me disse seu nome."
 
     # resposta padrão
     return (
