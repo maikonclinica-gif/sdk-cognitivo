@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SDK Cognitivo Demo</title>
+</head>
+<body>
+
+<h1>SDK Cognitivo Demo</h1>
+
+<input id="msg" type="text" placeholder="Digite sua mensagem" size="40">
+<button onclick="send()">Enviar</button>
+
+<pre id="out"></pre>
+
+<script>
+async function send() {
+  const text = document.getElementById("msg").value;
+
+  const res = await fetch("/chat", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({message: text})
+  });
+
+  const data = await res.json();
+  document.getElementById("out").innerText = data.reply;
+}
+</script>
+
+</body>
+</html>
